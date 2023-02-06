@@ -7,6 +7,12 @@ from drgn import Object
 from drgn.helpers.linux.mm import pfn_to_page, PageSwapBacked
 from drgn.helpers.linux.pid import find_task
 
+# A way how to get global variable called 'prog'.
+
+import config
+
+prog = config.program if config.program else prog
+
 # XXX: all this is x86_64 only, hardcoded because it's #define and not visible
 # in debuginfo
 
@@ -379,10 +385,11 @@ class PTWalk:
 
 # Demo usage of PTWalk class for PID == 1 (systemd)
 
-task = find_task(prog, 1)
-ptwalk = PTWalk()
-ptwalk.walk_mm(task.mm)
+if __name__ == "__main__":
+    task = find_task(prog, 1)
+    ptwalk = PTWalk()
+    ptwalk.walk_mm(task.mm)
 
-print('anon_count file_count shm_count swap_count')
-print(ptwalk.anon_count, ptwalk.file_count, ptwalk.shm_count, ptwalk.swap_count)
-print(ptwalk.anon_pfns_mapcount)
+    print('anon_count file_count shm_count swap_count')
+    print(ptwalk.anon_count, ptwalk.file_count, ptwalk.shm_count, ptwalk.swap_count)
+    print(ptwalk.anon_pfns_mapcount)
