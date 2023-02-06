@@ -503,10 +503,10 @@ for page in for_each_page(prog):
         # already handled above
         continue
     mapcount = page_mapcount(page)
-    anon_vma = page.mapping - 1
-    anon_vma_desc = identify_address(anon_vma)
-    print (f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma.value_():x} index {page.index.value_():x}: {anon_vma_desc}")
-    av_idx = (anon_vma.value_(), page.index.value_())
+    anon_vma = int(page.mapping) - 1
+    anon_vma_desc = identify_address(prog, anon_vma)
+    print (f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma:x} index {page.index.value_():x}: {anon_vma_desc}")
+    av_idx = (anon_vma, page.index.value_())
     for (mm, addr, page_addr) in ptwalk.avidx_to_mmaddr[av_idx]:
         print(f"    page 0x{page_addr:x} mapped with same anon_vma and index in mm 0x{mm:x} at addr 0x{addr:x}")
     total_map_diff += mapcount
