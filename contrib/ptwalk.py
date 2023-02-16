@@ -310,10 +310,10 @@ class PTWalk:
                 continue
             if pmd_trans_huge(pmdp):
                 pfn = pmd_pfn(pmdp)
-                page = Page.from_pfn(pfn)
+                page = pfn_to_page(prog, pfn)
 
                 self.anon_count += PTRS_PER_PTE
-                self.anon_pfns_mapcout[pfn] += 1
+                self.anon_pfns_mapcount[pfn] += 1
 
                 pmdp += 1
                 addr = next_addr
