@@ -7,19 +7,22 @@
 # actual instances found in page tables.
 # Per-mm rss inconsistencies are also reported.
 
+import datetime
 from collections import defaultdict
 
 from drgn import Object
+from drgn.helpers.common.format import number_in_binary_units
 from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU
 from drgn.helpers.linux.pid import find_task, for_each_task
 from drgn.helpers.linux.slab import find_slab_cache, slab_cache_for_each_allocated_object
 from drgn.helpers.common.memory import identify_address
+from drgn.helpers.linux.percpu import percpu_counter_sum
 
 # A small trick how to propagate global name 'prog' to the ptwalk module
 import config
 config.program = prog
 
-from ptwalk import PTWalk, PAGE_MAPPING_ANON
+from ptwalk import PTWalk, PAGE_MAPPING_ANON, PAGE_SIZE
 
 
 def page_mapcount(page):
@@ -49,6 +52,25 @@ mm_rss_shm = dict()
 mm_rss_swap = dict()
 mm_task = dict()
 
+def get_task_memory_info(task):
+    """
+    Return RSS (Resident Set Size) memory and VMS (Virtual Memory Size)
+    for a given task. Return None if the task is a kernel thread.
+    """
+    if not task.mm:
+        return None
+
+    vms = PAGE_SIZE * task.mm.total_vm.value_()
+
+    # Since Linux kernel commit f1a7941243c102a44e ("mm: convert mm's rss
+    # stats into percpu_counter") (in v6.2), rss_stat is percpu counter.
+    try:
+        rss = PAGE_SIZE * sum([percpu_counter_sum(x) for x in task.mm.rss_stat])
+    except (AttributeError, TypeError):
+        rss = PAGE_SIZE * sum([x.counter for x in task.mm.rss_stat.count]).value_()
+
+    return (vms, rss)
+
 for task in for_each_task(prog):
     mm = task.mm
     mmp = int(mm)
@@ -62,7 +84,11 @@ for task in for_each_task(prog):
             # Command can be in an Excluded page
             command = '[unknown cmdline]'
 
-        print(f"pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command}")
+        vms, rss = get_task_memory_info(task)
+        now = datetime.datetime.utcnow().strftime("%c")
+        print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
+              f"VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}")
+
         ptwalk.walk_mm(mm)
         mm_counted[mmp] = ptwalk.anon_count
         mm_counted_file[mmp] = ptwalk.file_count
