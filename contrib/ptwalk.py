@@ -64,8 +64,10 @@ _PAGE_PROTNONE= 1 << 8
 _PAGE_NUMA    = _PAGE_PROTNONE
 _PAGE_SPECIAL = 1 << 9
 _PAGE_FILE = _PAGE_DIRTY
+_PAGE_NX = 1 << 63
 
 _KERNPG_TABLE = (_PAGE_PRESENT | _PAGE_RW | _PAGE_ACCESSED | _PAGE_DIRTY)
+ignore_flags = _PAGE_USER|_PAGE_NX
 
 def __va(addr):
     return PAGE_OFFSET_BASE + int(addr)
@@ -169,7 +171,7 @@ def pte_none(ptep):
     return pte_val(ptep) == 0
 
 def pgd_bad(pgdp):
-    return (pgd_flags(pgdp) & ~_PAGE_USER) != _KERNPG_TABLE
+    return (pgd_flags(pgdp) & ~ignore_flags) != _KERNPG_TABLE
 
 def pud_bad(pudp):
     return ((pud_flags(pudp) & ~(_KERNPG_TABLE | _PAGE_USER)) != 0);
@@ -260,7 +262,12 @@ class PTWalk:
             print(f"m2p failed for addr 0x{addr:x} ptep 0x{int(ptep):x} pte_val 0x{pteval:x}")
             return None
 
-        return pfn_to_page(prog, pfn)
+        try:
+            return pfn_to_page(pfn)
+        except Exception:
+            pteval = pte_val(ptep)
+            print(f"failed to get page for addr 0x{addr:x} ptep 0x{int(ptep):x} pte_val 0x{pteval:x} pfn {pfn}")
+            return None
 
     def walk_pte_range(self, pmdp, addr, end):
 
