@@ -158,9 +158,9 @@ for mmp in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
     if mmp.value_() not in mm_task.keys():
         mm = mmp
         for i in range(4):
-            rss = mm.rss_stat.count[i].counter
+            rss = int(mm.rss_stat.count[i].counter)
             if rss != 0:
-                print (f"mm 0x{mmp:x} from slab not found in any task, has rss_stat[{i}] == {rss}")
+                print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
 
 for page in for_each_page(prog):
