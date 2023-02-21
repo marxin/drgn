@@ -56,7 +56,12 @@ for task in for_each_task(prog):
         continue
 
     if mmp not in mm_counted.keys():
-        command = ' '.join([x.decode() for x in cmdline(task)])
+        try:
+            command = ' '.join([x.decode() for x in cmdline(task)])
+        except Exception as e:
+            # Command can be in an Excluded page
+            command = '[unknown cmdline]'
+
         print(f"pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command}")
         ptwalk.walk_mm(mm)
         mm_counted[mmp] = ptwalk.anon_count
