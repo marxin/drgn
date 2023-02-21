@@ -27,7 +27,7 @@ from ptwalk import PTWalk, PAGE_MAPPING_ANON, PAGE_SIZE
 
 def page_mapcount(page):
     head = compound_head(page)
-    return head._mapcount.counter.value_()
+    return head._mapcount.counter.value_() + 1
 
 
 class MyWalk(PTWalk):
