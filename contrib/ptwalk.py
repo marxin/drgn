@@ -285,14 +285,17 @@ class PTWalk:
                 page = self.vm_normal_page(addr, ptep)
 
                 if page:
-                    if page.mapping.value_() & PAGE_MAPPING_ANON:
-                        self.anon_count += 1
-                        self.anon_pfns_mapcount[pfn] += 1
-                        self.process_anon_page(addr, page)
-                    elif PageSwapBacked(page):
-                        self.shm_count += 1
-                    else:
-                        self.file_count += 1
+                    try:
+                        if page.mapping.value_() & PAGE_MAPPING_ANON:
+                            self.anon_count += 1
+                            self.anon_pfns_mapcount[pfn] += 1
+                            self.process_anon_page(addr, page)
+                        elif PageSwapBacked(page):
+                            self.shm_count += 1
+                        else:
+                            self.file_count += 1
+                    except Exception as e:
+                        print(e)
             else:
                 if not non_swap_entry_ptep(ptep):
                     self.swap_count += 1
