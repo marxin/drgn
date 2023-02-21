@@ -166,10 +166,14 @@ for mmp in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
 
 
 for page in for_each_page(prog):
-    if not (PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON):
-        continue
-    if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
-        # already handled above
+    try:
+        if not (PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON):
+            continue
+        if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
+            # already handled above
+            continue
+    except Exception as e:
+        print(e)
         continue
     mapcount = page_mapcount(page)
     anon_vma = int(page.mapping) - 1
