@@ -1610,6 +1610,7 @@ report_vmlinux(struct drgn_debug_info_load_state *load,
 		"/boot/vmlinux-%s",
 		"/lib/modules/%s/build/vmlinux",
 		"/lib/modules/%s/vmlinux",
+		"vmlinux-%s",
 		NULL,
 	};
 	struct drgn_program *prog = load->dbinfo->prog;
