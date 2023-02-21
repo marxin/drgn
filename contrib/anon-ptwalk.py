@@ -78,15 +78,13 @@ for task in for_each_task(prog):
         continue
 
     if mmp not in mm_counted.keys():
-        try:
-            command = ' '.join([x.decode() for x in cmdline(task)])
-        except Exception as e:
-            # Command can be in an Excluded page
-            command = '[unknown cmdline]'
+        # command = ' '.join([x.decode() for x in cmdline(task)])
+        # This makes libkdumpfile unhappy and I see an zlib decompression error later on
+        # command = '[unknown cmdline]'
 
         vms, rss = get_task_memory_info(task)
         now = datetime.datetime.utcnow().strftime("%c")
-        print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
+        print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} "
               f"VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}")
 
         ptwalk.walk_mm(mm)
@@ -147,7 +145,11 @@ total_map_diff = 0
 
 for pfn in ptwalk.anon_pfns_mapcount.keys():
     page = pfn_to_page(Object(prog, 'unsigned long', pfn))
-    mapcount = page_mapcount(page)
+    try:
+        mapcount = page_mapcount(page)
+    except Exception as e:
+        print(e)
+        continue
     walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
     if walk_mapcount != mapcount:
         total_map_diff += mapcount - walk_mapcount
