@@ -263,7 +263,7 @@ class PTWalk:
             return None
 
         try:
-            return pfn_to_page(pfn)
+            return pfn_to_page(prog, pfn)
         except Exception:
             pteval = pte_val(ptep)
             print(f"failed to get page for addr 0x{addr:x} ptep 0x{int(ptep):x} pte_val 0x{pteval:x} pfn {pfn}")
