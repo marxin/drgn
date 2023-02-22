@@ -153,6 +153,7 @@ for mmp in alive_it(mm_counted.keys(), title='mm_counted'):
 
 total_map_diff = 0
 
+print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 for pfn in alive_it(ptwalk.anon_pfns_mapcount.keys(), title='ptwalk.anon_pfns_mapcount'):
     page = pfn_to_page(Object(prog, 'unsigned long', pfn))
     try:
@@ -176,7 +177,6 @@ for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struc
 
 
 page_count = int(prog["max_pfn"] - prog["min_low_pfn"])
-print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
 with alive_bar(page_count, unit='page', manual=True) as bar:
     for i, page in enumerate(for_each_page(prog)):
