@@ -165,6 +165,7 @@ for mmp in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
                 print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
 
+print(f'Iterating {int(prog["max_pfn"] - prog["min_low_pfn"])} pages:')
 for page in for_each_page(prog):
     try:
         # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
