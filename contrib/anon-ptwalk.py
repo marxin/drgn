@@ -10,6 +10,7 @@
 import datetime
 from collections import defaultdict
 
+import drgn
 from drgn import Object
 from drgn.helpers.common.format import number_in_binary_units
 from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU
@@ -175,6 +176,7 @@ for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struc
 
 
 page_count = int(prog["max_pfn"] - prog["min_low_pfn"])
+print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
 with alive_bar(page_count, unit='page', manual=True) as bar:
     for i, page in enumerate(for_each_page(prog)):
@@ -187,7 +189,7 @@ with alive_bar(page_count, unit='page', manual=True) as bar:
             if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
                 # already handled above
                 continue
-        except Exception as e:
+        except drgn.FaultError:
             continue
 
         mapcount = page_mapcount(page)
