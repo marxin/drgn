@@ -4,7 +4,7 @@
 from collections import defaultdict
 
 from drgn import Object
-from drgn.helpers.linux.mm import pfn_to_page, PageSwapBacked
+from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked
 from drgn.helpers.linux.pid import find_task
 
 # A way how to get global variable called 'prog'.
@@ -272,7 +272,6 @@ class PTWalk:
     def walk_pte_range(self, pmdp, addr, end):
 
         ptep = pte_offset(pmdp, addr)
-        pfn = pte_pfn(ptep)
 
         while addr != end:
 
@@ -288,7 +287,7 @@ class PTWalk:
                     try:
                         if page.mapping.value_() & PAGE_MAPPING_ANON:
                             self.anon_count += 1
-                            self.anon_pfns_mapcount[pfn] += 1
+                            self.anon_pfns_mapcount[page_to_pfn(page).value_()] += 1
                             self.process_anon_page(addr, page)
                         elif PageSwapBacked(page):
                             self.shm_count += 1
