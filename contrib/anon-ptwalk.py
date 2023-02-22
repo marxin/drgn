@@ -24,6 +24,11 @@ config.program = prog
 
 from ptwalk import PTWalk, PAGE_MAPPING_ANON, PAGE_SIZE
 
+try:
+    from alive_progress import alive_bar, alive_it
+except ImportError:
+    print('Missing alive_progress module: pip install alive-progress')
+    exit(1)
 
 def page_mapcount(page):
     head = compound_head(page)
@@ -71,7 +76,8 @@ def get_task_memory_info(task):
 
     return (vms, rss)
 
-for task in for_each_task(prog):
+task_count = len(list(for_each_task(prog)))
+for i, task in enumerate(for_each_task(prog)):
     mm = task.mm
     mmp = int(mm)
     if mmp == 0:
@@ -87,7 +93,8 @@ for task in for_each_task(prog):
         print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} "
               f"VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}")
 
-        ptwalk.walk_mm(mm)
+        with alive_bar(vms, unit='B', scale='IEC', manual=True, title=f'task {i + 1}/{task_count} walk_mm') as bar:
+            ptwalk.walk_mm(mm, vms, bar)
         mm_counted[mmp] = ptwalk.anon_count
         mm_counted_file[mmp] = ptwalk.file_count
         mm_counted_shm[mmp] = ptwalk.shm_count
@@ -105,9 +112,10 @@ for task in for_each_task(prog):
     mm_rss_swap[mmp] += task.rss_stat.count[2].value_()
     mm_rss_shm[mmp] += task.rss_stat.count[3].value_()
 
+print()
 total_rss_diff = 0
 
-for mmp in mm_counted.keys():
+for mmp in alive_it(mm_counted.keys(), title='mm_counted'):
     counted = mm_counted[mmp]
     rss = mm_rss_anon[mmp]
     
@@ -143,7 +151,7 @@ for mmp in mm_counted.keys():
 
 total_map_diff = 0
 
-for pfn in ptwalk.anon_pfns_mapcount.keys():
+for pfn in alive_it(ptwalk.anon_pfns_mapcount.keys(), title='ptwalk.anon_pfns_mapcount'):
     page = pfn_to_page(Object(prog, 'unsigned long', pfn))
     try:
         mapcount = page_mapcount(page)
@@ -156,7 +164,7 @@ for pfn in ptwalk.anon_pfns_mapcount.keys():
         print (f"page 0x{page.value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
 
 cache = find_slab_cache(prog, 'mm_struct')
-for mmp in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
+for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struct'), title='slab cache'):
     if mmp.value_() not in mm_task.keys():
         mm = mmp
         for i in range(4):
@@ -165,29 +173,32 @@ for mmp in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
                 print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
 
-print(f'Iterating {int(prog["max_pfn"] - prog["min_low_pfn"])} pages:')
-for page in for_each_page(prog):
-    try:
-        # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
-        # https://drgn.readthedocs.io/en/latest/helpers.html?highlight=for_each_page#drgn.helpers.linux.mm.for_each_page
-        if not (PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON):
+page_count = int(prog["max_pfn"] - prog["min_low_pfn"])
+
+with alive_bar(page_count, unit='page', manual=True) as bar:
+    for i, page in enumerate(for_each_page(prog)):
+        bar((i + 1) / page_count)
+        try:
+            # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
+            # https://drgn.readthedocs.io/en/latest/helpers.html?highlight=for_each_page#drgn.helpers.linux.mm.for_each_page
+            if not (PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON):
+                continue
+            if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
+                # already handled above
+                continue
+        except Exception as e:
             continue
-        if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
-            # already handled above
-            continue
-    except Exception as e:
-        continue
 
-    mapcount = page_mapcount(page)
-    anon_vma = int(page.mapping) - 1
-    anon_vma_desc = identify_address(prog, anon_vma)
-    print (f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma:x} index {page.index.value_():x}: {anon_vma_desc}")
+        mapcount = page_mapcount(page)
+        anon_vma = int(page.mapping) - 1
+        anon_vma_desc = identify_address(prog, anon_vma)
+        print (f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma:x} index {page.index.value_():x}: {anon_vma_desc}")
 
-    """
-    av_idx = (anon_vma, page.index.value_())
-    for (mm, addr, page_addr) in ptwalk.avidx_to_mmaddr[av_idx]:
-        print(f"    page 0x{page_addr:x} mapped with same anon_vma and index in mm 0x{mm:x} at addr 0x{addr:x}")
-    """
-    total_map_diff += mapcount
+        """
+        av_idx = (anon_vma, page.index.value_())
+        for (mm, addr, page_addr) in ptwalk.avidx_to_mmaddr[av_idx]:
+            print(f"    page 0x{page_addr:x} mapped with same anon_vma and index in mm 0x{mm:x} at addr 0x{addr:x}")
+        """
+        total_map_diff += mapcount
 
-print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")
+    print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")

@@ -359,6 +359,7 @@ class PTWalk:
 
         vm_start = vma.vm_start.value_()
         vm_end = vma.vm_end.value_()
+        self.walked += vm_end - vm_start
 
 
         if vma.vm_flags & VM_HUGETLB:
@@ -380,16 +381,19 @@ class PTWalk:
             pgdp += 1
             addr = next_addr
 
-    def walk_mm(self, mm):
+    def walk_mm(self, mm, vms, bar):
         self.anon_count = 0
         self.file_count = 0
         self.shm_count = 0
         self.swap_count = 0
         self.mm = mm
+        self.walked = 0
+
         vma = mm.mmap
         while vma:
             self.walk_vma(mm, vma)
             vma = vma.vm_next
+            bar(self.walked / vms)
 
 
 # Demo usage of PTWalk class for PID == 1 (systemd)
