@@ -6,13 +6,15 @@ from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, comp
 
 from math import ceil
 
+from alive_progress import alive_bar
 import concurrent.futures
 
-pages = int(prog["max_pfn"])
+pages = int(prog['max_pfn'])
 print(f'Visiting {pages} pages')
 
 PAGE_MAPPING_ANON = 1
-CHUNK = 10 ** 6
+CHUNK = 10 ** 5
+
 
 def parse_pages(index):
     vmemmap = prog["vmemmap"]
@@ -24,19 +26,26 @@ def parse_pages(index):
             if PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON:
                 pfn = page_to_pfn(page).value_()
                 pfns.add(pfn)
+                compound_head(page)._mapcount.counter.value_() + 1
         except drgn.FaultError:
             continue
     return pfns
 
+
 with concurrent.futures.ProcessPoolExecutor() as executor:
-    futures = []
+    futures = set()
     part_count = ceil(pages / CHUNK)
     print('part count:', part_count)
     for i in range(part_count):
-        futures.append(executor.submit(parse_pages, i))
-    concurrent.futures.wait(futures)
+        futures.add(executor.submit(parse_pages, i))
+
     pfns = set()
-    for future in futures:
-        pfns |= future.result()
+    with alive_bar(part_count * CHUNK, manual=True, unit='page', scale='SI') as bar:
+        while futures:
+            done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                pfns |= future.result()
+            futures -= done
+            bar(1 - len(futures) / part_count)
 
 print(f'pfns set size is {len(pfns)}')
