@@ -19,6 +19,7 @@ CHUNK = 10 ** 5
 def parse_pages(index):
     vmemmap = prog["vmemmap"]
     pfns = set()
+    seen, not_compound = 0, 0
 
     for i in range(index * CHUNK, (index + 1) * CHUNK):
         page = vmemmap + i
@@ -26,10 +27,14 @@ def parse_pages(index):
             if PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON:
                 pfn = page_to_pfn(page).value_()
                 pfns.add(pfn)
-                compound_head(page)._mapcount.counter.value_() + 1
+                head = compound_head(page)
+                head._mapcount.counter.value_() + 1
+                seen += 1
+                if page == head:
+                    not_compound += 1
         except drgn.FaultError:
             continue
-    return pfns
+    return (seen, not_compound, pfns)
 
 
 with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -40,12 +45,18 @@ with concurrent.futures.ProcessPoolExecutor() as executor:
         futures.add(executor.submit(parse_pages, i))
 
     pfns = set()
+    total_seen, total_not_compound = 0, 0
+
     with alive_bar(part_count * CHUNK, manual=True, unit='page', scale='SI') as bar:
         while futures:
             done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
             for future in done:
-                pfns |= future.result()
+                seen, not_compound, pset = future.result()
+                total_seen += seen
+                total_not_compound += not_compound
+                pfns |= pset
             futures -= done
             bar(1 - len(futures) / part_count)
 
 print(f'pfns set size is {len(pfns)}')
+print(f'seen pages: {total_seen}, not in compound page: {total_not_compound}')
