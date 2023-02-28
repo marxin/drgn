@@ -16,7 +16,7 @@ import concurrent.futures
 import drgn
 from drgn import Object
 from drgn.helpers.common.format import number_in_binary_units
-from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU
+from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU, totalram_pages
 from drgn.helpers.linux.pid import find_task, for_each_task
 from drgn.helpers.linux.slab import find_slab_cache, slab_cache_for_each_allocated_object
 from drgn.helpers.common.memory import identify_address
@@ -204,26 +204,35 @@ for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struc
             if rss != 0:
                 print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
-page_count = int(prog["max_pfn"] - prog["min_low_pfn"])
 
-with alive_bar(page_count, unit='page', manual=True) as bar:
-    for i, page in enumerate(for_each_page(prog)):
-        bar((i + 1) / page_count)
+def parse_pages(index):
+    page0 = next(for_each_page(prog))
+    pfns = set()
+
+    for i in range(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE):
+        page = page0 + i
         try:
             # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
             # https://drgn.readthedocs.io/en/latest/helpers.html?highlight=for_each_page#drgn.helpers.linux.mm.for_each_page
-            if not (PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON):
-                continue
-            if page_to_pfn(page).value_() in ptwalk.anon_pfns_mapcount.keys():
-                # already handled above
-                continue
+            if PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON:
+                pfns.add(page_to_pfn(page))
         except drgn.FaultError:
             continue
+    return pfns
 
+
+def check_anonymous_pfns(pfns):
+    global total_map_diff
+    for pfn in pfns:
+        if pfn in ptwalk.anon_pfns_mapcount.keys():
+            # already handled above
+            continue
+
+        page = pfn_to_page(prog, pfn)
         mapcount = page_mapcount(page)
         anon_vma = int(page.mapping) - 1
         anon_vma_desc = identify_address(prog, anon_vma)
-        print (f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma:x} index {page.index.value_():x}: {anon_vma_desc}")
+        print(f"unmapped page {page.value_():x} mapcount {mapcount} with anon_vma {anon_vma:x} index {page.index.value_():x}: {anon_vma_desc}")
 
         """
         av_idx = (anon_vma, page.index.value_())
@@ -232,4 +241,19 @@ with alive_bar(page_count, unit='page', manual=True) as bar:
         """
         total_map_diff += mapcount
 
-    print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")
+
+with concurrent.futures.ProcessPoolExecutor() as executor:
+    total_pages = totalram_pages(prog)
+    parts = ceil(total_pages / CHUNK_SIZE)
+    futures = {executor.submit(parse_pages, i) for i in range(parts)}
+    done_futures = set()
+
+    with alive_bar(parts, manual=True) as bar:
+        while futures != done_futures:
+            done, not_done = concurrent.futures.wait(futures - done_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                check_anonymous_pfns(future.result())
+            done_futures |= done
+            bar(len(done_futures) / len(futures))
+
+print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")
