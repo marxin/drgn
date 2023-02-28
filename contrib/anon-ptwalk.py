@@ -16,7 +16,7 @@ from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 import drgn
 from drgn import Object
 from drgn.helpers.common.format import number_in_binary_units
-from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU, totalram_pages
+from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked, compound_head, cmdline, for_each_page, PageLRU
 from drgn.helpers.linux.pid import find_task, for_each_task
 from drgn.helpers.linux.slab import find_slab_cache, slab_cache_for_each_allocated_object
 from drgn.helpers.common.memory import identify_address
@@ -198,16 +198,15 @@ with ProcessPoolExecutor() as executor:
 cache = find_slab_cache(prog, 'mm_struct')
 for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struct'), title='slab cache'):
     if mmp.value_() not in mm_task.keys():
-        mm = mmp
         for i in range(4):
-            rss = int(mm.rss_stat.count[i].counter)
+            rss = int(mmp.rss_stat.count[i].counter)
             if rss != 0:
                 print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
 
 def parse_pages(index):
     page0 = next(for_each_page(prog))
-    pfns = set()
+    pfns = []
 
     for i in range(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE):
         page = page0 + i
@@ -215,7 +214,7 @@ def parse_pages(index):
             # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
             # https://drgn.readthedocs.io/en/latest/helpers.html?highlight=for_each_page#drgn.helpers.linux.mm.for_each_page
             if PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON:
-                pfns.add(int(page_to_pfn(page)))
+                pfns.append(int(page_to_pfn(page)))
         except drgn.FaultError:
             continue
     return pfns
@@ -243,8 +242,8 @@ def check_anonymous_pfns(pfns):
 
 
 with ProcessPoolExecutor() as executor:
-    total_pages = totalram_pages(prog)
-    parts = ceil(total_pages / CHUNK_SIZE)
+    max_pfn = int(prog['max_pfn'])
+    parts = ceil(max_pfn / CHUNK_SIZE)
     futures = {executor.submit(parse_pages, i) for i in range(parts)}
     done_futures = set()
 
