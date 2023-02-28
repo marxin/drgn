@@ -10,6 +10,9 @@
 import datetime
 from collections import defaultdict
 
+from math import ceil
+import concurrent.futures
+
 import drgn
 from drgn import Object
 from drgn.helpers.common.format import number_in_binary_units
@@ -31,10 +34,17 @@ except ImportError:
     print('Missing alive_progress module: pip install alive-progress')
     exit(1)
 
+
+CHUNK_SIZE = 10 ** 5
+
 def page_mapcount(page):
     head = compound_head(page)
     return head._mapcount.counter.value_() + 1
 
+
+def split(items, chunk):
+    for i in range(ceil(len(items) / chunk)):
+        yield items[i * chunk:(i + 1) * chunk]
 
 class MyWalk(PTWalk):
     def __init__(self):
@@ -153,18 +163,37 @@ for mmp in alive_it(mm_counted.keys(), title='mm_counted'):
 
 total_map_diff = 0
 
+def check_mapcount_for_pfns(pfns):
+    pfns_mapcount = {}
+    for pfn in pfns:
+        try:
+            pfns_mapcount[pfn] = page_mapcount(pfn_to_page(prog, pfn))
+        except Exception as e:
+            print(e)
+    return pfns_mapcount
+
+
 print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
-for pfn in alive_it(ptwalk.anon_pfns_mapcount.keys(), title='ptwalk.anon_pfns_mapcount'):
-    page = pfn_to_page(Object(prog, 'unsigned long', pfn))
-    try:
-        mapcount = page_mapcount(page)
-    except Exception as e:
-        print(e)
-        continue
-    walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
-    if walk_mapcount != mapcount:
-        total_map_diff += mapcount - walk_mapcount
-        print (f"page 0x{page.value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
+
+with concurrent.futures.ProcessPoolExecutor() as executor:
+    keys = list(ptwalk.anon_pfns_mapcount.keys())
+    futures = {executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)}
+    done_futures = set()
+
+    with alive_bar(len(keys), title='ptwalk.anon_pfns_mapcount', manual=True) as bar:
+        while futures != done_futures:
+            done, not_done = concurrent.futures.wait(futures - done_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                pfns_mapcount = future.result()
+                for pfn, mapcount in pfns_mapcount.items():
+                    walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
+                    if walk_mapcount != mapcount:
+                        total_map_diff += mapcount - walk_mapcount
+                        print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
+
+            done_futures |= done
+            bar(len(done_futures) / len(futures))
+
 
 cache = find_slab_cache(prog, 'mm_struct')
 for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struct'), title='slab cache'):
@@ -174,7 +203,6 @@ for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struc
             rss = int(mm.rss_stat.count[i].counter)
             if rss != 0:
                 print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
-
 
 page_count = int(prog["max_pfn"] - prog["min_low_pfn"])
 
