@@ -9,6 +9,7 @@
 
 import datetime
 from collections import defaultdict
+import os
 
 from math import ceil
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
@@ -34,7 +35,7 @@ except ImportError:
     print('Missing alive_progress module: pip install alive-progress')
     exit(1)
 
-
+CPU_COUNT = os.cpu_count()
 CHUNK_SIZE = 10 ** 5
 
 def page_mapcount(page):
@@ -175,7 +176,7 @@ def check_mapcount_for_pfns(pfns):
 
 print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
-with ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     keys = list(ptwalk.anon_pfns_mapcount.keys())
     futures = {executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)}
     done_futures = set()
@@ -241,7 +242,7 @@ def check_anonymous_pfns(pfns):
         total_map_diff += mapcount
 
 
-with ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     max_pfn = int(prog['max_pfn'])
     parts = ceil(max_pfn / CHUNK_SIZE)
     futures = {executor.submit(parse_pages, i) for i in range(parts)}
