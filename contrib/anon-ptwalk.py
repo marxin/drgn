@@ -215,7 +215,7 @@ def parse_pages(index):
             # This may include offline pages which don’t have a valid struct page. Wrap accesses in a try … except drgn.FaultError:
             # https://drgn.readthedocs.io/en/latest/helpers.html?highlight=for_each_page#drgn.helpers.linux.mm.for_each_page
             if PageLRU(page) and page.mapping.value_() & PAGE_MAPPING_ANON:
-                pfns.add(page_to_pfn(page))
+                pfns.add(int(page_to_pfn(page)))
         except drgn.FaultError:
             continue
     return pfns
