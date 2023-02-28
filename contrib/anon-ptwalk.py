@@ -178,23 +178,18 @@ print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys()
 
 with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     keys = list(ptwalk.anon_pfns_mapcount.keys())
-    futures = {executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)}
-    done_futures = set()
+    futures = [executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)]
+    with alive_bar(len(futures), title='ptwalk.anon_pfns_mapcount') as bar:
+        for future in futures:
+            future.add_done_callback(lambda _: bar())
+        wait(futures)
 
-    with alive_bar(len(keys), title='ptwalk.anon_pfns_mapcount', manual=True) as bar:
-        while futures != done_futures:
-            done, not_done = wait(futures - done_futures, return_when=FIRST_COMPLETED)
-            for future in done:
-                pfns_mapcount = future.result()
-                for pfn, mapcount in pfns_mapcount.items():
-                    walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
-                    if walk_mapcount != mapcount:
-                        total_map_diff += mapcount - walk_mapcount
-                        print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
-
-            done_futures |= done
-            bar(len(done_futures) / len(futures))
-
+        for future in futures:
+            for pfn, mapcount in future.result().items():
+                walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
+                if walk_mapcount != mapcount:
+                    total_map_diff += mapcount - walk_mapcount
+                    print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
 
 cache = find_slab_cache(prog, 'mm_struct')
 for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struct'), title='slab cache'):
@@ -245,15 +240,13 @@ def check_anonymous_pfns(pfns):
 with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     max_pfn = int(prog['max_pfn'])
     parts = ceil(max_pfn / CHUNK_SIZE)
-    futures = {executor.submit(parse_pages, i) for i in range(parts)}
-    done_futures = set()
+    futures = [executor.submit(parse_pages, i) for i in range(parts)]
+    with alive_bar(parts) as bar:
+        for future in futures:
+            future.add_done_callback(lambda _: bar())
 
-    with alive_bar(parts, manual=True) as bar:
-        while futures != done_futures:
-            done, not_done = wait(futures - done_futures, return_when=FIRST_COMPLETED)
-            for future in done:
-                check_anonymous_pfns(future.result())
-            done_futures |= done
-            bar(len(done_futures) / len(futures))
+        wait(futures)
+        for future in futures:
+            check_anonymous_pfns(future.result())
 
 print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")
