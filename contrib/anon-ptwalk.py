@@ -11,7 +11,7 @@ import datetime
 from collections import defaultdict
 
 from math import ceil
-import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 
 import drgn
 from drgn import Object
@@ -175,14 +175,14 @@ def check_mapcount_for_pfns(pfns):
 
 print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
-with concurrent.futures.ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor() as executor:
     keys = list(ptwalk.anon_pfns_mapcount.keys())
     futures = {executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)}
     done_futures = set()
 
     with alive_bar(len(keys), title='ptwalk.anon_pfns_mapcount', manual=True) as bar:
         while futures != done_futures:
-            done, not_done = concurrent.futures.wait(futures - done_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            done, not_done = wait(futures - done_futures, return_when=FIRST_COMPLETED)
             for future in done:
                 pfns_mapcount = future.result()
                 for pfn, mapcount in pfns_mapcount.items():
@@ -202,7 +202,7 @@ for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struc
         for i in range(4):
             rss = int(mm.rss_stat.count[i].counter)
             if rss != 0:
-                print (f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
+                print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
 
 
 def parse_pages(index):
@@ -242,7 +242,7 @@ def check_anonymous_pfns(pfns):
         total_map_diff += mapcount
 
 
-with concurrent.futures.ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor() as executor:
     total_pages = totalram_pages(prog)
     parts = ceil(total_pages / CHUNK_SIZE)
     futures = {executor.submit(parse_pages, i) for i in range(parts)}
@@ -250,7 +250,7 @@ with concurrent.futures.ProcessPoolExecutor() as executor:
 
     with alive_bar(parts, manual=True) as bar:
         while futures != done_futures:
-            done, not_done = concurrent.futures.wait(futures - done_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            done, not_done = wait(futures - done_futures, return_when=FIRST_COMPLETED)
             for future in done:
                 check_anonymous_pfns(future.result())
             done_futures |= done
