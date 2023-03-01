@@ -187,6 +187,14 @@ def check_mapcount_for_pfns(pfns):
     return pfns_mapcount
 
 
+def check_mapcount(future):
+    global total_map_diff
+    for pfn, mapcount in future.result().items():
+        walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
+        if walk_mapcount != mapcount:
+            total_map_diff += mapcount - walk_mapcount
+            print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
+
 print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
 with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
@@ -195,14 +203,8 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     with alive_bar(len(futures), title='ptwalk.anon_pfns_mapcount') as bar:
         for future in futures:
             future.add_done_callback(lambda _: bar())
+            future.add_done_callback(check_mapcount)
         wait(futures)
-
-        for future in futures:
-            for pfn, mapcount in future.result().items():
-                walk_mapcount = ptwalk.anon_pfns_mapcount[pfn]
-                if walk_mapcount != mapcount:
-                    total_map_diff += mapcount - walk_mapcount
-                    print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
 
 
 while not slab_queue.empty():
@@ -231,7 +233,8 @@ def parse_pages(index):
     return pfns
 
 
-def check_anonymous_pfns(pfns):
+def check_anonymous_pfns(future):
+    pfns = future.result()
     global total_map_diff
     for pfn in pfns:
         if pfn in ptwalk.anon_pfns_mapcount.keys():
@@ -259,9 +262,7 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     with alive_bar(parts) as bar:
         for future in futures:
             future.add_done_callback(lambda _: bar())
-
+            future.add_done_callback(check_anonymous_pfns)
         wait(futures)
-        for future in futures:
-            check_anonymous_pfns(future.result())
 
 print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.counts.m2p_fails}")
