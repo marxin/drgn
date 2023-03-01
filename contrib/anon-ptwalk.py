@@ -9,6 +9,7 @@
 
 from collections import defaultdict
 import os
+import sys
 
 from math import ceil
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
@@ -193,8 +194,10 @@ def check_mapcount(future):
             total_map_diff += mapcount - walk_mapcount
             print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
 
-print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
+print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
+print(f'ptwalk.anon_pfns_mapcount takes {number_in_binary_units( sys.getsizeof(ptwalk.anon_pfns_mapcount))}')
+print()
 
 def parse_pages(index):
     page0 = next(for_each_page(prog))
