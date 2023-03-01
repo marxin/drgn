@@ -34,8 +34,8 @@ print('PAGE_MASK', hex(PAGE_MASK))
 print('PAGE_OFFSET_BASE', hex(PAGE_OFFSET_BASE))
 print()
 
-# Use 2 GiB as a chunk size for the parallel VMA walker
-VMA_CHUNK_SIZE = 2 * 1024 ** 3
+# Use reasonable small chunks for the parallel VMA walker
+VMA_CHUNK_SIZE = 100 * 1024 ** 2
 
 VM_HUGETLB = 0x00400000
 
@@ -432,7 +432,7 @@ class PTWalk:
         self.counts += counts
 
 
-    def walk_mm(self, mm, title):
+    def walk_mm(self, mm, title, executor):
         self.counts = Counter()
         vma = mm.mmap
         intervals = []
@@ -452,16 +452,14 @@ class PTWalk:
                 self.merge_subwalker(ptsubwalk.anon_pfns_mapcount, ptsubwalk.counts)
                 bar()
             else:
-                with ProcessPoolExecutor() as executor:
-                    futures = []
-
-                    for size, intervals in parts:
-                        ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
-                        futures.append(executor.submit(ptsubwalk.walk))
-                    for future in futures:
-                        future.add_done_callback(lambda future: self.merge_subwalker(*future.result()))
-                        future.add_done_callback(lambda _: bar())
-                    wait(futures)
+                futures = []
+                for size, intervals in parts:
+                    ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
+                    futures.append(executor.submit(ptsubwalk.walk))
+                for future in futures:
+                    future.add_done_callback(lambda _: bar())
+                    future.add_done_callback(lambda future: self.merge_subwalker(*future.result()))
+                wait(futures)
 
 
 # Demo usage of PTWalk class for PID == 1 (systemd)

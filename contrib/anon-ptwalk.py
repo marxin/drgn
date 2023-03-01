@@ -89,40 +89,42 @@ def get_task_memory_info(task):
     return (vms, rss)
 
 task_count = len(list(for_each_task(prog)))
-for i, task in enumerate(for_each_task(prog)):
-    mm = task.mm
-    mmp = int(mm)
-    if mmp == 0:
-        continue
 
-    if mmp not in mm_counted.keys():
-        # command = ' '.join([x.decode() for x in cmdline(task)])
-        # This makes libkdumpfile unhappy and I see an zlib decompression error later on
-        # command = '[unknown cmdline]'
+with ProcessPoolExecutor() as executor:
+    for i, task in enumerate(for_each_task(prog)):
+        mm = task.mm
+        mmp = int(mm)
+        if mmp == 0:
+            continue
 
-        vms, rss = get_task_memory_info(task)
-        now = datetime.datetime.utcnow().strftime("%c")
-        command = task.comm.string_().decode()
-        print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
-              f"[VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}]")
+        if mmp not in mm_counted.keys():
+            # command = ' '.join([x.decode() for x in cmdline(task)])
+            # This makes libkdumpfile unhappy and I see an zlib decompression error later on
+            # command = '[unknown cmdline]'
 
-        ptwalk.walk_mm(mm, f'task {i + 1}/{task_count} walk_mm')
-        mm_counted[mmp] = ptwalk.counts.anon
-        mm_counted_file[mmp] = ptwalk.counts.file
-        mm_counted_shm[mmp] = ptwalk.counts.shm
-        mm_counted_swap[mmp] = ptwalk.counts.swap
-        mm_rss_file[mmp] = mm.rss_stat.count[0].counter.value_()
-        mm_rss_anon[mmp] = mm.rss_stat.count[1].counter.value_()
-        mm_rss_swap[mmp] = mm.rss_stat.count[2].counter.value_()
-        mm_rss_shm[mmp] = mm.rss_stat.count[3].counter.value_()
-        mm_task[mmp] = [task.value_()]
-    else:
-        mm_task[mmp].append(task.value_())        
+            vms, rss = get_task_memory_info(task)
+            now = datetime.datetime.utcnow().strftime("%c")
+            command = task.comm.string_().decode()
+            print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
+                f"[VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}]")
 
-    mm_rss_file[mmp] += task.rss_stat.count[0].value_()
-    mm_rss_anon[mmp] += task.rss_stat.count[1].value_()
-    mm_rss_swap[mmp] += task.rss_stat.count[2].value_()
-    mm_rss_shm[mmp] += task.rss_stat.count[3].value_()
+            ptwalk.walk_mm(mm, f'task {i + 1}/{task_count} walk_mm', executor)
+            mm_counted[mmp] = ptwalk.counts.anon
+            mm_counted_file[mmp] = ptwalk.counts.file
+            mm_counted_shm[mmp] = ptwalk.counts.shm
+            mm_counted_swap[mmp] = ptwalk.counts.swap
+            mm_rss_file[mmp] = mm.rss_stat.count[0].counter.value_()
+            mm_rss_anon[mmp] = mm.rss_stat.count[1].counter.value_()
+            mm_rss_swap[mmp] = mm.rss_stat.count[2].counter.value_()
+            mm_rss_shm[mmp] = mm.rss_stat.count[3].counter.value_()
+            mm_task[mmp] = [task.value_()]
+        else:
+            mm_task[mmp].append(task.value_())
+
+        mm_rss_file[mmp] += task.rss_stat.count[0].value_()
+        mm_rss_anon[mmp] += task.rss_stat.count[1].value_()
+        mm_rss_swap[mmp] += task.rss_stat.count[2].value_()
+        mm_rss_shm[mmp] += task.rss_stat.count[3].value_()
 
 print()
 total_rss_diff = 0
