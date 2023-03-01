@@ -195,27 +195,6 @@ def check_mapcount(future):
 
 print(f'ptwalk.anon_pfns_mapcount contains {len(ptwalk.anon_pfns_mapcount.keys())} keys')
 
-with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
-    keys = list(ptwalk.anon_pfns_mapcount.keys())
-    futures = [executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)]
-    with alive_bar(len(futures), title='ptwalk.anon_pfns_mapcount') as bar:
-        for future in futures:
-            future.add_done_callback(lambda _: bar())
-            future.add_done_callback(check_mapcount)
-        wait(futures)
-
-
-with alive_bar(slab_queue.qsize(), title='slab mm_struct') as bar:
-    while not slab_queue.empty():
-        bar()
-        mmp = Object(prog, 'struct mm_struct *', slab_queue.get())
-        if mmp.value_() not in mm_task.keys():
-            for i in range(4):
-                rss = int(mmp.rss_stat.count[i].counter)
-                if rss != 0:
-                    print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
-    slab_process.join()
-
 
 def parse_pages(index):
     page0 = next(for_each_page(prog))
@@ -256,6 +235,25 @@ def check_anonymous_pfns(future):
 
 
 with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
+    keys = list(ptwalk.anon_pfns_mapcount.keys())
+    futures = [executor.submit(check_mapcount_for_pfns, chunk) for chunk in split(keys, CHUNK_SIZE)]
+    with alive_bar(len(futures), title='ptwalk.anon_pfns_mapcount') as bar:
+        for future in futures:
+            future.add_done_callback(lambda _: bar())
+            future.add_done_callback(check_mapcount)
+        wait(futures)
+
+    with alive_bar(slab_queue.qsize(), title='slab mm_struct') as bar:
+        while not slab_queue.empty():
+            bar()
+            mmp = Object(prog, 'struct mm_struct *', slab_queue.get())
+            if mmp.value_() not in mm_task.keys():
+                for i in range(4):
+                    rss = int(mmp.rss_stat.count[i].counter)
+                    if rss != 0:
+                        print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
+        slab_process.join()
+
     max_pfn = int(prog['max_pfn'])
     parts = ceil(max_pfn / CHUNK_SIZE)
     futures = [executor.submit(parse_pages, i) for i in range(parts)]
