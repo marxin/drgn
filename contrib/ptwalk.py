@@ -454,10 +454,10 @@ class PTWalk:
 # Demo usage of PTWalk class for PID == 1 (systemd)
 
 if __name__ == "__main__":
-    task = find_task(prog, 1)
-    ptwalk = PTWalk()
-    ptwalk.walk_mm(task.mm)
+    with ProcessPoolExecutor() as executor:
+        task = find_task(prog, 1)
+        ptwalk = PTWalk()
+        ptwalk.walk_mm(task.mm, 'task 1', executor)
 
-    print('anon_count file_count shm_count swap_count')
-    print(ptwalk.counts.anon, ptwalk.counts.file, ptwalk.counts.shm, ptwalk.counts.swap)
-    print(ptwalk.anon_pfns_mapcount)
+        print('anon_count file_count shm_count swap_count')
+        print(ptwalk.counts.anon, ptwalk.counts.file, ptwalk.counts.shm, ptwalk.counts.swap)
