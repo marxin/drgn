@@ -248,13 +248,9 @@ class Counter:
         self.m2p_fails = 0
 
     def __add__(self, other):
-        # FIXME: should be a better way
         c = Counter()
-        c.anon = self.anon + other.anon
-        c.file = self.file + other.file
-        c.shm = self.shm + other.shm
-        c.swap = self.swap + other.swap
-        c.m2p_fails = self.m2p_fails + other.m2p_fails
+        for k, v in self.__dict__.items():
+            c.__dict__[k] = v + other.__dict__[k]
         return c
 
 
