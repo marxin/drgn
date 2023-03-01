@@ -7,7 +7,6 @@
 # actual instances found in page tables.
 # Per-mm rss inconsistencies are also reported.
 
-import datetime
 from collections import defaultdict
 import os
 
@@ -115,9 +114,8 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
             # command = '[unknown cmdline]'
 
             vms, rss = get_task_memory_info(task)
-            now = datetime.datetime.utcnow().strftime("%c")
             command = task.comm.string_().decode()
-            print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
+            print(f"pagewalk of task 0x{int(task):x} mm=0x{mmp:x} {command} "
                 f"[VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}]")
 
             ptwalk.walk_mm(mm, f'task {i + 1}/{task_count} walk_mm', executor)
@@ -207,14 +205,16 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
         wait(futures)
 
 
-while not slab_queue.empty():
-    mmp = Object(prog, 'struct mm_struct *', slab_queue.get())
-    if mmp.value_() not in mm_task.keys():
-        for i in range(4):
-            rss = int(mmp.rss_stat.count[i].counter)
-            if rss != 0:
-                print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
-slab_process.join()
+with alive_bar(slab_queue.qsize(), title='slab mm_struct') as bar:
+    while not slab_queue.empty():
+        bar()
+        mmp = Object(prog, 'struct mm_struct *', slab_queue.get())
+        if mmp.value_() not in mm_task.keys():
+            for i in range(4):
+                rss = int(mmp.rss_stat.count[i].counter)
+                if rss != 0:
+                    print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
+    slab_process.join()
 
 
 def parse_pages(index):
@@ -259,7 +259,7 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     max_pfn = int(prog['max_pfn'])
     parts = ceil(max_pfn / CHUNK_SIZE)
     futures = [executor.submit(parse_pages, i) for i in range(parts)]
-    with alive_bar(parts) as bar:
+    with alive_bar(parts, title='for_each_page check with anon_pfns_mapcount') as bar:
         for future in futures:
             future.add_done_callback(lambda _: bar())
             future.add_done_callback(check_anonymous_pfns)
