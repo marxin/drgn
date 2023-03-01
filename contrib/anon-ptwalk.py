@@ -13,6 +13,7 @@ import os
 
 from math import ceil
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+from multiprocessing import Process, Queue
 
 import drgn
 from drgn import Object
@@ -69,6 +70,17 @@ mm_rss_shm = dict()
 mm_rss_swap = dict()
 mm_task = dict()
 
+
+def visit_slab_cache(queue):
+    cache = find_slab_cache(prog, 'mm_struct')
+    for obj in slab_cache_for_each_allocated_object(cache, 'struct mm_struct'):
+        queue.put(int(obj))
+
+
+slab_queue = Queue()
+slab_process = Process(target=visit_slab_cache, args=(slab_queue,))
+slab_process.start()
+
 def get_task_memory_info(task):
     """
     Return RSS (Resident Set Size) memory and VMS (Virtual Memory Size)
@@ -90,7 +102,7 @@ def get_task_memory_info(task):
 
 task_count = len(list(for_each_task(prog)))
 
-with ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
     for i, task in enumerate(for_each_task(prog)):
         mm = task.mm
         mmp = int(mm)
@@ -192,13 +204,15 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
                     total_map_diff += mapcount - walk_mapcount
                     print(f"page 0x{pfn_to_page(prog, pfn).value_():x} mapcount is {mapcount} but found only {walk_mapcount} in page tables")
 
-cache = find_slab_cache(prog, 'mm_struct')
-for mmp in alive_it(slab_cache_for_each_allocated_object(cache, 'struct mm_struct'), title='slab cache'):
+
+while not slab_queue.empty():
+    mmp = Object(prog, 'struct mm_struct *', slab_queue.get())
     if mmp.value_() not in mm_task.keys():
         for i in range(4):
             rss = int(mmp.rss_stat.count[i].counter)
             if rss != 0:
                 print(f"mm 0x{mmp.value_():x} from slab not found in any task, has rss_stat[{i}] == {rss}")
+slab_process.join()
 
 
 def parse_pages(index):
