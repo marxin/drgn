@@ -20,6 +20,7 @@ PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
 PAGE_MASK = prog["PAGE_MASK"].value_()
 PAGE_SIZE = prog["PAGE_SIZE"].value_()
 PAGE_OFFSET_BASE = prog['page_offset_base'].value_()
+ZERO_PFN = prog["zero_pfn"].value_()
 
 print('=== System info ===')
 print('PAGE_MASK', hex(PAGE_MASK))
@@ -230,15 +231,13 @@ def non_swap_entry_ptep(ptep):
 class PTWalk:
 
     def __init__(self) -> None:
-        self.mm = None
-        self.vma = None
+        self.vma_addr = None
         self.anon_pfns_mapcount = defaultdict(int)
         self.anon_count = 0
         self.file_count = 0
         self.shm_count = 0
         self.swap_count = 0
         self.m2p_fails = 0
-        self.zero_pfn = prog["zero_pfn"].value_()
 
     def process_anon_page(self, addr, page):
         pass
@@ -251,7 +250,7 @@ class PTWalk:
             #print "pte is special"
             return None
 
-        if pfn == self.zero_pfn:
+        if pfn == ZERO_PFN:
             return None
 
         pfn = mfn2pfn(pfn)
@@ -301,7 +300,7 @@ class PTWalk:
                 else:
                     pteval = pte_val(ptep)
                     # XXX: handle migration entries
-                    print(f"non_swap swap entry in vma=0x{int(self.vma.address):x} addr=0x{addr:x} pte_val=0x{pteval:x}")
+                    print(f"non_swap swap entry in vma=0x{self.vma_addr:x} addr=0x{addr:x} pte_val=0x{pteval:x}")
 
             addr += PAGE_SIZE
             ptep += 1
@@ -319,8 +318,6 @@ class PTWalk:
                 continue
             if pmd_trans_huge(pmdp):
                 pfn = pmd_pfn(pmdp)
-                page = pfn_to_page(prog, pfn)
-
                 self.anon_count += PTRS_PER_PTE
                 self.anon_pfns_mapcount[pfn] += 1
 
@@ -355,7 +352,7 @@ class PTWalk:
         return addr
 
     def walk_vma(self, mm, vma):
-        self.vma = vma
+        self.vma_addr = vma.value_()
 
         vm_start = vma.vm_start.value_()
         vm_end = vma.vm_end.value_()
@@ -386,7 +383,6 @@ class PTWalk:
         self.file_count = 0
         self.shm_count = 0
         self.swap_count = 0
-        self.mm = mm
         self.walked = 0
 
         vma = mm.mmap
