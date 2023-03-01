@@ -445,21 +445,14 @@ class PTWalk:
         # Split the intervals and sort by size
         parts = sorted(self.split(intervals), key=lambda x: 0, reverse=True)
         with alive_bar(len(parts), title=title) as bar:
-            if len(parts) == 1:
-                size, intervals = parts[0]
+            futures = []
+            for size, intervals in parts:
                 ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
-                ptsubwalk.walk()
-                self.merge_subwalker(ptsubwalk.anon_pfns_mapcount, ptsubwalk.counts)
-                bar()
-            else:
-                futures = []
-                for size, intervals in parts:
-                    ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
-                    futures.append(executor.submit(ptsubwalk.walk))
-                for future in futures:
-                    future.add_done_callback(lambda _: bar())
-                    future.add_done_callback(lambda future: self.merge_subwalker(*future.result()))
-                wait(futures)
+                futures.append(executor.submit(ptsubwalk.walk))
+            for future in futures:
+                future.add_done_callback(lambda _: bar())
+                future.add_done_callback(lambda future: self.merge_subwalker(*future.result()))
+            wait(futures)
 
 
 # Demo usage of PTWalk class for PID == 1 (systemd)
