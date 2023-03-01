@@ -106,8 +106,7 @@ for i, task in enumerate(for_each_task(prog)):
         print(f"{now}: pagewalk of task 0x{int(task.value_()):x} mm=0x{mmp:x} {command} "
               f"[VMS={number_in_binary_units(vms)}, RSS={number_in_binary_units(rss)}]")
 
-        with alive_bar(vms, unit='B', scale='IEC', manual=True, title=f'task {i + 1}/{task_count} walk_mm') as bar:
-            ptwalk.walk_mm(mm, vms, bar)
+        ptwalk.walk_mm(mm, f'task {i + 1}/{task_count} walk_mm')
         mm_counted[mmp] = ptwalk.counts.anon
         mm_counted_file[mmp] = ptwalk.counts.file
         mm_counted_shm[mmp] = ptwalk.counts.shm

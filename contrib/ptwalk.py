@@ -2,10 +2,17 @@
 # vim:set shiftwidth=4 softtabstop=4 expandtab textwidth=79:
 
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 
 from drgn import Object
 from drgn.helpers.linux.mm import pfn_to_page, page_to_pfn, PageSwapBacked
 from drgn.helpers.linux.pid import find_task
+
+try:
+    from alive_progress import alive_bar, alive_it
+except ImportError:
+    print('Missing alive_progress module: pip install alive-progress')
+    exit(1)
 
 # A way how to get global variable called 'prog'.
 
@@ -26,6 +33,9 @@ print('=== System info ===')
 print('PAGE_MASK', hex(PAGE_MASK))
 print('PAGE_OFFSET_BASE', hex(PAGE_OFFSET_BASE))
 print()
+
+# Use 2 GiB as a chunk size for the parallel VMA walker
+VMA_CHUNK_SIZE = 2 * 1024 ** 3
 
 VM_HUGETLB = 0x00400000
 
@@ -237,11 +247,24 @@ class Counter:
         self.swap = 0
         self.m2p_fails = 0
 
+    def __add__(self, other):
+        # FIXME: should be a better way
+        c = Counter()
+        c.anon = self.anon + other.anon
+        c.file = self.file + other.file
+        c.shm = self.shm + other.shm
+        c.swap = self.swap + other.swap
+        c.m2p_fails = self.m2p_fails + other.m2p_fails
+        return c
 
-class PTWalk:
 
-    def __init__(self) -> None:
-        self.vma_addr = None
+class PTSubWalk:
+
+    def __init__(self, size, intervals, vma_addr, mm_addr) -> None:
+        self.size = size
+        self.intervals = intervals
+        self.vma_addr = vma_addr
+        self.mm_addr = mm_addr
         self.anon_pfns_mapcount = defaultdict(int)
         self.counts = Counter()
 
@@ -357,16 +380,8 @@ class PTWalk:
 
         return addr
 
-    def walk_vma(self, mm, vma):
-        self.vma_addr = vma.value_()
-
-        vm_start = vma.vm_start.value_()
-        vm_end = vma.vm_end.value_()
-        self.walked += vm_end - vm_start
-
-
-        if vma.vm_flags & VM_HUGETLB:
-            return
+    def walk_vma(self, mm, interval):
+        vm_start, vm_end = interval
 
         pgdp = pgd_offset(mm, vm_start)
         pgdval = pgdp.pgd
@@ -384,15 +399,69 @@ class PTWalk:
             pgdp += 1
             addr = next_addr
 
-    def walk_mm(self, mm, vms, bar):
-        self.counts = Counter()
-        self.walked = 0
+    def walk(self):
+        mm = Object(prog, 'struct mm_struct *', self.mm_addr)
+        for interval in self.intervals:
+            self.walk_vma(mm, interval)
+        return (self.anon_pfns_mapcount, self.counts)
 
+class PTWalk:
+    def __init__(self) -> None:
+        self.anon_pfns_mapcount = defaultdict(int)
+        self.counts = Counter()
+
+    def split(self, intervals):
+        while intervals:
+            size = 0
+            i = 0
+
+            while i < len(intervals):
+                start, end = intervals[i]
+                i += 1
+
+                size += end - start
+                if size > VMA_CHUNK_SIZE:
+                    break
+
+            yield (size, intervals[:i])
+            intervals = intervals[i:]
+
+    def merge_subwalker(self, anon_pfns_mapcount, counts):
+        for k, v in anon_pfns_mapcount.items():
+            self.anon_pfns_mapcount[k] += v
+        self.counts += counts
+
+
+    def walk_mm(self, mm, title):
+        self.counts = Counter()
         vma = mm.mmap
+        intervals = []
+
         while vma:
-            self.walk_vma(mm, vma)
+            if not vma.vm_flags & VM_HUGETLB:
+                intervals.append((int(vma.vm_start), int(vma.vm_end)))
             vma = vma.vm_next
-            bar(self.walked / vms)
+
+        # Split the intervals and sort by size
+        parts = sorted(self.split(intervals), key=lambda x: 0, reverse=True)
+        with alive_bar(len(parts), title=title) as bar:
+            if len(parts) == 1:
+                size, intervals = parts[0]
+                ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
+                ptsubwalk.walk()
+                self.merge_subwalker(ptsubwalk.anon_pfns_mapcount, ptsubwalk.counts)
+                bar()
+            else:
+                with ProcessPoolExecutor() as executor:
+                    futures = []
+
+                    for size, intervals in parts:
+                        ptsubwalk = PTSubWalk(size, intervals, int(vma), int(mm))
+                        futures.append(executor.submit(ptsubwalk.walk))
+                    for future in futures:
+                        future.add_done_callback(lambda future: self.merge_subwalker(*future.result()))
+                        future.add_done_callback(lambda _: bar())
+                    wait(futures)
 
 
 # Demo usage of PTWalk class for PID == 1 (systemd)
