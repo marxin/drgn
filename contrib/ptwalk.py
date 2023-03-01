@@ -228,16 +228,22 @@ def ptep_to_swp_type(ptep):
 def non_swap_entry_ptep(ptep):
     return ptep_to_swp_type(ptep) >= MAX_SWAPFILES
 
+
+class Counter:
+    def __init__(self):
+        self.anon = 0
+        self.file = 0
+        self.shm = 0
+        self.swap = 0
+        self.m2p_fails = 0
+
+
 class PTWalk:
 
     def __init__(self) -> None:
         self.vma_addr = None
         self.anon_pfns_mapcount = defaultdict(int)
-        self.anon_count = 0
-        self.file_count = 0
-        self.shm_count = 0
-        self.swap_count = 0
-        self.m2p_fails = 0
+        self.counts = Counter()
 
     def process_anon_page(self, addr, page):
         pass
@@ -257,7 +263,7 @@ class PTWalk:
 
         if pfn is None:
             pteval = pte_val(ptep)
-            self.m2p_fails += 1
+            self.counts.m2p_fails += 1
             print(f"m2p failed for addr 0x{addr:x} ptep 0x{int(ptep):x} pte_val 0x{pteval:x}")
             return None
 
@@ -285,18 +291,18 @@ class PTWalk:
                 if page:
                     try:
                         if page.mapping.value_() & PAGE_MAPPING_ANON:
-                            self.anon_count += 1
+                            self.counts.anon += 1
                             self.anon_pfns_mapcount[page_to_pfn(page).value_()] += 1
                             self.process_anon_page(addr, page)
                         elif PageSwapBacked(page):
-                            self.shm_count += 1
+                            self.counts.shm += 1
                         else:
-                            self.file_count += 1
+                            self.counts.file += 1
                     except Exception as e:
                         print(e)
             else:
                 if not non_swap_entry_ptep(ptep):
-                    self.swap_count += 1
+                    self.counts.swap += 1
                 else:
                     pteval = pte_val(ptep)
                     # XXX: handle migration entries
@@ -318,7 +324,7 @@ class PTWalk:
                 continue
             if pmd_trans_huge(pmdp):
                 pfn = pmd_pfn(pmdp)
-                self.anon_count += PTRS_PER_PTE
+                self.counts.anon += PTRS_PER_PTE
                 self.anon_pfns_mapcount[pfn] += 1
 
                 pmdp += 1
@@ -379,10 +385,7 @@ class PTWalk:
             addr = next_addr
 
     def walk_mm(self, mm, vms, bar):
-        self.anon_count = 0
-        self.file_count = 0
-        self.shm_count = 0
-        self.swap_count = 0
+        self.counts = Counter()
         self.walked = 0
 
         vma = mm.mmap
@@ -400,5 +403,5 @@ if __name__ == "__main__":
     ptwalk.walk_mm(task.mm)
 
     print('anon_count file_count shm_count swap_count')
-    print(ptwalk.anon_count, ptwalk.file_count, ptwalk.shm_count, ptwalk.swap_count)
+    print(ptwalk.counts.anon, ptwalk.counts.file, ptwalk.counts.shm, ptwalk.counts.swap)
     print(ptwalk.anon_pfns_mapcount)

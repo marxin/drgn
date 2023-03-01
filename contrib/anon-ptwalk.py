@@ -108,10 +108,10 @@ for i, task in enumerate(for_each_task(prog)):
 
         with alive_bar(vms, unit='B', scale='IEC', manual=True, title=f'task {i + 1}/{task_count} walk_mm') as bar:
             ptwalk.walk_mm(mm, vms, bar)
-        mm_counted[mmp] = ptwalk.anon_count
-        mm_counted_file[mmp] = ptwalk.file_count
-        mm_counted_shm[mmp] = ptwalk.shm_count
-        mm_counted_swap[mmp] = ptwalk.swap_count
+        mm_counted[mmp] = ptwalk.counts.anon
+        mm_counted_file[mmp] = ptwalk.counts.file
+        mm_counted_shm[mmp] = ptwalk.counts.shm
+        mm_counted_swap[mmp] = ptwalk.counts.swap
         mm_rss_file[mmp] = mm.rss_stat.count[0].counter.value_()
         mm_rss_anon[mmp] = mm.rss_stat.count[1].counter.value_()
         mm_rss_swap[mmp] = mm.rss_stat.count[2].counter.value_()
@@ -249,4 +249,4 @@ with ProcessPoolExecutor(max_workers=CPU_COUNT // 2) as executor:
         for future in futures:
             check_anonymous_pfns(future.result())
 
-print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.m2p_fails}")
+print(f"total anon rss diff {total_rss_diff} mapcount diff {total_map_diff} m2p fails {ptwalk.counts.m2p_fails}")
